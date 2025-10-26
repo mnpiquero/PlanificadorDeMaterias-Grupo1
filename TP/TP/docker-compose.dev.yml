@@ -1,0 +1,37 @@
+version: '3.8'
+
+# Configuración solo para desarrollo - Solo Neo4j
+# Útil cuando quieres desarrollar la aplicación localmente con hot-reload
+# pero usar Neo4j en Docker
+
+services:
+  neo4j:
+    image: neo4j:5.13.0
+    container_name: planificador-neo4j-dev
+    ports:
+      - "7474:7474"  # Browser web de Neo4j
+      - "7687:7687"  # Puerto Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/grupo123
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_memory_pagecache_size=512M
+      - NEO4J_dbms_memory_heap_initial__size=512M
+      - NEO4J_dbms_memory_heap_max__size=1G
+    volumes:
+      - neo4j_data_dev:/data
+      - neo4j_logs_dev:/logs
+      - neo4j_import_dev:/var/lib/neo4j/import
+      - neo4j_plugins_dev:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  neo4j_data_dev:
+  neo4j_logs_dev:
+  neo4j_import_dev:
+  neo4j_plugins_dev:
+
