@@ -26,24 +26,6 @@ public class GraphService {
     private final CourseRepository repo;
     public GraphService(CourseRepository repo){ this.repo = repo; }
 
-    // --- Util: construir grafo en memoria ---
-//    private Mono<Map<String, Set<String>>> buildAdj() {
-//        return repo.allCourses().collectList().map(all -> {
-//            Map<String, Set<String>> adj = new HashMap<>();
-//            for (Course c : all) {
-//                adj.putIfAbsent(c.getCode(), new HashSet<>());
-//                if (c.getPrereqs()!=null) {
-//                    for (Course p : c.getPrereqs()) {
-//                        // arista: c -> p (c requiere p)
-//                        adj.get(c.getCode()).add(p.getCode());
-//                    }
-//                }
-//            }
-//            // asegurar nodos sin relaciones
-//            for (Course c : all) adj.putIfAbsent(c.getCode(), adj.getOrDefault(c.getCode(), new HashSet<>()));
-//            return adj;
-//        });
-//    }
     //--- Util: construir grafo en memoria ---
     // GraphService.java
     private Mono<Map<String, Set<String>>> buildAdj() {
@@ -158,53 +140,57 @@ public class GraphService {
     // --- Dijkstra: pesos por métrica del destino ---
     // metric: difficulty | hours | credits (usar inverso si querés minimizar carga)
     public Mono<List<String>> shortestPath(String from, String to, String metric) {
-        metric = (metric==null)? "difficulty" : metric;
-        String finalMetric = metric;
-        return repo.allCourses().collectList().flatMap(all -> {
-            Map<String, Course> map = all.stream().collect(Collectors.toMap(Course::getCode, c->c));
-            // grafo dirigido: edges u -> v si v es prereq de u (para una ruta "hacia atrás")
-            Map<String, Set<String>> adj = new HashMap<>();
-            for (Course c : all) {
-                adj.putIfAbsent(c.getCode(), new HashSet<>());
-                if (c.getPrereqs()!=null) {
-                    for (Course p : c.getPrereqs()) adj.get(c.getCode()).add(p.getCode());
-                }
-            }
-            if (!map.containsKey(from) || !map.containsKey(to)) return Mono.just(List.of());
+        String m = (metric == null) ? "difficulty" : metric;
 
-            // Dijkstra
+        return Mono.zip(
+                buildAdj(),                                      // Map<String, Set<String>>  course -> prereqs
+                repo.allCourses().collectMap(Course::getCode, c -> c) // Map<String, Course>
+        ).flatMap(tuple -> {
+            Map<String, Set<String>> adj = tuple.getT1();
+            Map<String, Course> map = tuple.getT2();
+
+            if (!adj.containsKey(from) || !adj.containsKey(to)) return Mono.just(List.of());
+
+            // Dijkstra sobre course -> prereq, pesando por la métrica del nodo destino (el prereq)
             Map<String, Double> dist = new HashMap<>();
-            Map<String, String> prev = new HashMap<>();
-            for (String k: adj.keySet()) dist.put(k, Double.POSITIVE_INFINITY);
+            Map<String, String>  prev = new HashMap<>();
+            for (String k : adj.keySet()) dist.put(k, Double.POSITIVE_INFINITY);
             dist.put(from, 0.0);
+
             PriorityQueue<String> pq = new PriorityQueue<>(Comparator.comparingDouble(dist::get));
             pq.add(from);
 
-            while(!pq.isEmpty()){
+            while (!pq.isEmpty()) {
                 String u = pq.poll();
                 if (u.equals(to)) break;
+
                 for (String v : adj.getOrDefault(u, Set.of())) {
-                    double w = weightOf(map.get(v), finalMetric); // costo de cursar v
+                    double w  = weightOf(map.get(v), m);       // costo de cursar v
                     double nd = dist.get(u) + w;
-                    if (nd < dist.get(v)) {
-                        dist.put(v, nd); prev.put(v, u);
-                        pq.remove(v); pq.add(v);
+                    if (nd < dist.getOrDefault(v, Double.POSITIVE_INFINITY)) {
+                        dist.put(v, nd);
+                        prev.put(v, u);
+                        pq.remove(v);
+                        pq.add(v);
                     }
                 }
             }
-            if (!prev.containsKey(to) && !from.equals(to)) return Mono.just(List.of());
+
             // reconstrucción
+            if (!from.equals(to) && !prev.containsKey(to)) return Mono.just(List.of());
             List<String> path = new ArrayList<>();
-            String cur = to; path.add(cur);
-            while(!cur.equals(from)) {
+            String cur = to;
+            path.add(cur);
+            while (!cur.equals(from)) {
                 cur = prev.get(cur);
-                if (cur==null) break;
+                if (cur == null) return Mono.just(List.of());
                 path.add(cur);
             }
             Collections.reverse(path);
             return Mono.just(path);
         });
     }
+
 
     private double weightOf(Course c, String metric) {
         if (c==null) return 1.0;
