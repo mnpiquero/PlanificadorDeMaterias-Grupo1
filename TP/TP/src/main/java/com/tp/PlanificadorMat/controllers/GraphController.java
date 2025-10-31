@@ -21,8 +21,8 @@ public class GraphController {
 
     /** DFS: O(V+E) */
     @GetMapping("/dfs")
-    public Flux<String> dfs(@RequestParam String from) {
-        return svc.dfs(from);
+    public reactor.core.publisher.Mono<java.util.List<String>> dfs(@RequestParam String from) {
+        return svc.dfs(from).collectList();
     }
 
     /** BFS layers: O(V+E) */

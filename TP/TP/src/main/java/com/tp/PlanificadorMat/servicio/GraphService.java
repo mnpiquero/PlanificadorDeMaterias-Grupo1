@@ -7,6 +7,13 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import com.tp.PlanificadorMat.repositorio.CourseRepository;
 
+import java.util.AbstractMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -20,23 +27,57 @@ public class GraphService {
     public GraphService(CourseRepository repo){ this.repo = repo; }
 
     // --- Util: construir grafo en memoria ---
+//    private Mono<Map<String, Set<String>>> buildAdj() {
+//        return repo.allCourses().collectList().map(all -> {
+//            Map<String, Set<String>> adj = new HashMap<>();
+//            for (Course c : all) {
+//                adj.putIfAbsent(c.getCode(), new HashSet<>());
+//                if (c.getPrereqs()!=null) {
+//                    for (Course p : c.getPrereqs()) {
+//                        // arista: c -> p (c requiere p)
+//                        adj.get(c.getCode()).add(p.getCode());
+//                    }
+//                }
+//            }
+//            // asegurar nodos sin relaciones
+//            for (Course c : all) adj.putIfAbsent(c.getCode(), adj.getOrDefault(c.getCode(), new HashSet<>()));
+//            return adj;
+//        });
+//    }
+    //--- Util: construir grafo en memoria ---
+    // GraphService.java
     private Mono<Map<String, Set<String>>> buildAdj() {
-        return repo.allCourses().collectList().map(all -> {
-            Map<String, Set<String>> adj = new HashMap<>();
-            for (Course c : all) {
-                adj.putIfAbsent(c.getCode(), new HashSet<>());
-                if (c.getPrereqs()!=null) {
-                    for (Course p : c.getPrereqs()) {
-                        // arista: c -> p (c requiere p)
-                        adj.get(c.getCode()).add(p.getCode());
-                    }
-                }
-            }
-            // asegurar nodos sin relaciones
-            for (Course c : all) adj.putIfAbsent(c.getCode(), adj.getOrDefault(c.getCode(), new HashSet<>()));
-            return adj;
-        });
+        return repo.allCourses()
+                .map(com.tp.PlanificadorMat.modelo.Course::getCode) // Flux<String>
+                .collectList()                                      // Mono<List<String>> codes
+                .flatMap(codes ->
+                        Flux.fromIterable(codes)                        // Flux<String> code
+                                .flatMap(code ->
+                                        repo.prereqsOf(code)                    // Flux<Course>
+                                                .map(com.tp.PlanificadorMat.modelo.Course::getCode) // Flux<String>
+                                                .collectList()                      // Mono<List<String>>
+                                                .map(list -> new AbstractMap.SimpleEntry<>(
+                                                        code,
+                                                        new HashSet<String>(list)   // <-- genérico explícito
+                                                ))
+                                )
+                                // Forzamos el tipo del Map resultante
+                                .collectMap(
+                                        AbstractMap.SimpleEntry::getKey,
+                                        AbstractMap.SimpleEntry::getValue,
+                                        () -> new HashMap<String, Set<String>>()   // <-- proveedor tipado
+                                )
+                                .map(adj -> {
+                                    // asegurar nodos sin salientes
+                                    for (String c : codes) {
+                                        adj.putIfAbsent(c, new HashSet<String>());
+                                    }
+                                    return adj; // Map<String, Set<String>>
+                                })
+                );
     }
+
+
 
     // --- DFS desde un nodo (sobre edges REQUIRES salientes) ---
     public Flux<String> dfs(String from) {
@@ -236,4 +277,5 @@ public class GraphService {
     }
 
     public record Edge(String u, String v, double w) {}
+
 }
