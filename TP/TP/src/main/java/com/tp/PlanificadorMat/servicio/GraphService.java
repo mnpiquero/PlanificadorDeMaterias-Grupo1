@@ -204,20 +204,20 @@ public class GraphService {
     // --- MST (Prim y Kruskal) sobre subgrafo no dirigido RELATED (peso = 1/sim) ---
     public Mono<List<Edge>> mst(String algo) {
         return repo.relatedEdges().collectList().map(edges -> {
-            // normalizamos a lista de aristas con peso
             List<Edge> list = new ArrayList<>();
             for (var e : edges) {
-                double sim = e.getSim()==null? 0.0 : e.getSim();
-                double w = sim<=0? Double.POSITIVE_INFINITY : 1.0/sim;
+                double sim = e.getSim() == null ? 0.0 : e.getSim();
+                double w = sim <= 0 ? Double.POSITIVE_INFINITY : 1.0 / sim;
                 list.add(new Edge(e.getFrom(), e.getTo(), w));
             }
             Set<String> nodes = new HashSet<>();
-            list.forEach(ed -> { nodes.add(ed.u); nodes.add(ed.v); });
+            list.forEach(ed -> { nodes.add(ed.u()); nodes.add(ed.v()); });
 
             if ("kruskal".equalsIgnoreCase(algo)) return mstKruskal(nodes, list);
             return mstPrim(nodes, list);
         });
     }
+
 
     private List<Edge> mstPrim(Set<String> nodes, List<Edge> edges) {
         if (nodes.isEmpty()) return List.of();
