@@ -152,10 +152,10 @@ public class CourseController {
     }
 
     private void validateHours(Integer hours) {
-        if (hours < 0 || hours > 40) {
+        if (hours < 0 || hours > 350) {
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST, 
-                "Las horas deben estar entre 0 y 40"
+                "Las horas deben estar entre 0 y 350"
             );
         }
     }
