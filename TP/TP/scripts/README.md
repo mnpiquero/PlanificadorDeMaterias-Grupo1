@@ -26,6 +26,8 @@ chmod +x init-data.sh
 
 ### Opción 2: Plan Completo de Ingeniería en Informática (46 materias)
 
+**✨ Nuevo:** Los scripts ahora usan un enfoque de **dos fases** para evitar nodos con propiedades NULL.
+
 #### Windows (PowerShell)
 
 ```powershell
@@ -38,6 +40,10 @@ chmod +x init-data.sh
 chmod +x init-data-ingenieria.sh
 ./init-data-ingenieria.sh
 ```
+
+El script ejecuta:
+- **Fase 1**: Crea los 46 cursos con propiedades completas (sin relaciones)
+- **Fase 2**: Agrega las relaciones REQUIRES entre cursos
 
 ## 📊 Datos que Carga
 

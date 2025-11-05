@@ -22,6 +22,32 @@ public class CourseController {
     @PutMapping
     Mono<Course> upsert(@RequestBody Course c){ 
         validateCourse(c);
+        
+        // Si tiene prereqs, procesarlos manualmente para evitar sobrescribir nodos existentes
+        if (c.getPrereqs() != null && !c.getPrereqs().isEmpty()) {
+            // Extraer los códigos de prerequisitos
+            java.util.List<String> prereqCodes = c.getPrereqs().stream()
+                .map(Course::getCode)
+                .collect(java.util.stream.Collectors.toList());
+            
+            // Limpiar prereqs temporalmente para guardar el curso sin ellos
+            c.setPrereqs(new java.util.HashSet<>());
+            
+            // Guardar el curso sin prereqs
+            return repo.save(c)
+                .flatMap(savedCourse -> {
+                    // Ahora buscar los prerequisitos reales y agregarlos
+                    return repo.findAllByCodeIn(prereqCodes)
+                        .collectList()
+                        .map(prereqs -> {
+                            savedCourse.setPrereqs(new java.util.HashSet<>(prereqs));
+                            return savedCourse;
+                        })
+                        .flatMap(repo::save);
+                });
+        }
+        
+        // Si no tiene prereqs, guardarlo normalmente
         return repo.save(c); 
     }
 
@@ -127,6 +153,26 @@ public class CourseController {
     @GetMapping("/{code}/exists")
     Mono<Boolean> exists(@PathVariable String code) {
         return repo.existsByCode(code);
+    }
+
+    /** Agregar prerequisitos a una materia sin modificar sus propiedades */
+    @PostMapping("/{code}/prereqs")
+    Mono<Course> addPrereqs(@PathVariable String code, @RequestBody java.util.List<String> prereqCodes) {
+        return repo.findOneByCode(code)
+            .switchIfEmpty(Mono.error(new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Materia no encontrada: " + code
+            )))
+            .flatMap(course -> {
+                // Buscar todos los prerequisitos por código
+                return repo.findAllByCodeIn(prereqCodes)
+                    .collectList()
+                    .map(prereqs -> {
+                        course.setPrereqs(new java.util.HashSet<>(prereqs));
+                        return course;
+                    });
+            })
+            .flatMap(repo::save);
     }
 
     // Validaciones
