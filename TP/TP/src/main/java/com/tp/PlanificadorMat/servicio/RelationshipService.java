@@ -8,7 +8,9 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.HashMap;
 import java.util.Map;
+import com.tp.PlanificadorMat.modelo.Course;
 
 /**
  * Servicio para gestionar relaciones RELATED entre materias
@@ -26,7 +28,7 @@ public class RelationshipService {
      */
     public Mono<Map<String, String>> createRelationship(RelatedRelationshipDTO dto) {
         // Validar que ambas materias existan
-        return validateBothExist(dto.fromCode(), dto.toCode())
+        return validateBothExist(dto.getFromCode(), dto.getToCode())
             .flatMap(valid -> {
                 if (!valid) {
                     return Mono.error(new ResponseStatusException(
@@ -35,19 +37,19 @@ public class RelationshipService {
                     ));
                 }
                 // Validar que no sea la misma materia
-                if (dto.fromCode().equals(dto.toCode())) {
+                if (dto.getFromCode().equals(dto.getToCode())) {
                     return Mono.error(new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
                         "Una materia no puede tener relación RELATED consigo misma"
                     ));
                 }
                 
-                double similarity = dto.similarity() != null ? dto.similarity() : 0.5;
-                return repo.createRelatedRelationship(dto.fromCode(), dto.toCode(), similarity)
-                    .then(Mono.just(Map.of(
+                double similarity = dto.getSimilarity() != null ? dto.getSimilarity() : 0.5;
+                return repo.createRelatedRelationship(dto.getFromCode(), dto.getToCode(), similarity)
+                    .then(Mono.just(createMap(
                         "message", "Relación creada exitosamente",
-                        "from", dto.fromCode(),
-                        "to", dto.toCode(),
+                        "from", dto.getFromCode(),
+                        "to", dto.getToCode(),
                         "similarity", String.valueOf(similarity)
                     )));
             });
@@ -65,7 +67,7 @@ public class RelationshipService {
                         "No existe relación RELATED entre " + fromCode + " y " + toCode
                     ));
                 }
-                return Mono.just(Map.of(
+                return Mono.just(createMap(
                     "message", "Relación eliminada exitosamente",
                     "from", fromCode,
                     "to", toCode
@@ -92,7 +94,7 @@ public class RelationshipService {
                         "No existe relación RELATED entre " + fromCode + " y " + toCode
                     ));
                 }
-                return Mono.just(Map.of(
+                return Mono.just(createMap(
                     "message", "Similaridad actualizada exitosamente",
                     "from", fromCode,
                     "to", toCode,
@@ -114,7 +116,7 @@ public class RelationshipService {
                     ));
                 }
                 return repo.getRelatedCourses(code)
-                    .map(edge -> Map.<String, Object>of(
+                    .map(edge -> createObjectMap(
                         "relatedCourse", edge.getFrom(),
                         "similarity", edge.getSim()
                     ));
@@ -126,7 +128,7 @@ public class RelationshipService {
      */
     public Flux<Map<String, Object>> getAllRelationships() {
         return repo.relatedEdges()
-            .map(edge -> Map.<String, Object>of(
+            .map(edge -> createObjectMap(
                 "from", edge.getFrom(),
                 "to", edge.getTo(),
                 "similarity", edge.getSim()
@@ -141,8 +143,8 @@ public class RelationshipService {
             repo.findOneByCode(fromCode),
             repo.findOneByCode(toCode)
         ).flatMap(tuple -> {
-            var course1 = tuple.getT1();
-            var course2 = tuple.getT2();
+            Course course1 = tuple.getT1();
+            Course course2 = tuple.getT2();
             
             // Algoritmo simple de similaridad basado en créditos, horas y dificultad
             double similarity = calculateSimilarity(
@@ -152,7 +154,7 @@ public class RelationshipService {
             );
             
             return repo.createRelatedRelationship(fromCode, toCode, similarity)
-                .then(Mono.just(Map.of(
+                .then(Mono.just(createMap(
                     "message", "Relación creada con similaridad calculada automáticamente",
                     "from", fromCode,
                     "to", toCode,
@@ -197,6 +199,32 @@ public class RelationshipService {
             repo.existsByCode(code1),
             repo.existsByCode(code2)
         ).map(tuple -> tuple.getT1() && tuple.getT2());
+    }
+
+    // Utilidades para crear Maps sin usar Map.of()
+    private Map<String, String> createMap(String... keyValuePairs) {
+        Map<String, String> map = new HashMap<String, String>();
+        for (int i = 0; i < keyValuePairs.length; i += 2) {
+            if (i + 1 < keyValuePairs.length) {
+                map.put(keyValuePairs[i], keyValuePairs[i + 1]);
+            }
+        }
+        return map;
+    }
+
+    private Map<String, Object> createObjectMap(String key1, Object value1, String key2, Object value2) {
+        Map<String, Object> map = new HashMap<String, Object>();
+        map.put(key1, value1);
+        map.put(key2, value2);
+        return map;
+    }
+
+    private Map<String, Object> createObjectMap(String key1, Object value1, String key2, Object value2, String key3, Object value3) {
+        Map<String, Object> map = new HashMap<String, Object>();
+        map.put(key1, value1);
+        map.put(key2, value2);
+        map.put(key3, value3);
+        return map;
     }
 }
 

@@ -52,7 +52,8 @@ public class Course {
 
     @Override public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof Course that)) return false;
+        if (!(o instanceof Course)) return false;
+        Course that = (Course) o;
         return Objects.equals(code, that.code);
     }
     @Override public int hashCode() { return Objects.hash(code); }

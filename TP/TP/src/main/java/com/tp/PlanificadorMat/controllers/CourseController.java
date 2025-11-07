@@ -26,9 +26,10 @@ public class CourseController {
         // Si tiene prereqs, procesarlos manualmente para evitar sobrescribir nodos existentes
         if (c.getPrereqs() != null && !c.getPrereqs().isEmpty()) {
             // Extraer los códigos de prerequisitos
-            java.util.List<String> prereqCodes = c.getPrereqs().stream()
-                .map(Course::getCode)
-                .collect(java.util.stream.Collectors.toList());
+            java.util.List<String> prereqCodes = new java.util.ArrayList<String>();
+            for (Course prereq : c.getPrereqs()) {
+                prereqCodes.add(prereq.getCode());
+            }
             
             // Limpiar prereqs temporalmente para guardar el curso sin ellos
             c.setPrereqs(new java.util.HashSet<>());

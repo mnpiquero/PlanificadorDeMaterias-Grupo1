@@ -40,7 +40,11 @@ public class GraphController {
     /** Ciclos: true/false (O(V+E)) */
     @GetMapping("/cycles")
     public Mono<Map<String, Boolean>> cycles() {
-        return svc.hasCycle().map(b -> Map.of("hasCycle", b));
+        return svc.hasCycle().map(b -> {
+            java.util.Map<String, Boolean> result = new java.util.HashMap<String, Boolean>();
+            result.put("hasCycle", b);
+            return result;
+        });
     }
 
     /** Dijkstra O((V+E) log V): shortest path según métrica */
@@ -54,10 +58,13 @@ public class GraphController {
     /** MST (Prim/Kruskal) sobre RELATED: O(E log V) */
     @GetMapping("/mst")
     public Mono<List<MstEdgeDTO>> mst(@RequestParam(defaultValue = "prim") String algo) {
-        return svc.mst(algo).map(list ->
-                list.stream()
-                        .map(e -> new MstEdgeDTO(e.u(), e.v(), e.w()))
-                        .toList()
-        );
+        return svc.mst(algo).map(list -> {
+            java.util.List<MstEdgeDTO> result = new java.util.ArrayList<MstEdgeDTO>();
+            for (int i = 0; i < list.size(); i++) {
+                com.tp.PlanificadorMat.servicio.Edge e = list.get(i);
+                result.add(new MstEdgeDTO(e.getU(), e.getV(), e.getW()));
+            }
+            return result;
+        });
     }
 }
