@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader } from '../components/ui/Card';
-import { coursesApi } from '../services/api';
+import { coursesApi, scheduleApi } from '../services/api';
 import { useApprovedCourses } from '../store/approvedCourses';
 import { LayoutDashboard, BookOpen, CheckCircle2, TrendingUp, Users } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
@@ -12,14 +12,18 @@ export default function Dashboard() {
     queryFn: coursesApi.getAll,
   });
 
+  // Usar el backend para calcular materias disponibles
+  const { data: availableCourses = [], isLoading: loadingAvailable } = useQuery({
+    queryKey: ['available-courses', approvedCodes],
+    queryFn: () => scheduleApi.available(Array.from(approvedCodes)),
+    enabled: courses.length > 0,
+  });
+
   const stats = {
     total: courses.length,
     approved: approvedCodes.length,
     remaining: courses.length - approvedCodes.length,
-    available: courses.filter(c => {
-      if (!c.prereqs || c.prereqs.length === 0) return true;
-      return c.prereqs.every(p => approvedCodes.includes(p.code));
-    }).length,
+    available: availableCourses.length,
   };
 
   const statCards = [
@@ -70,7 +74,7 @@ export default function Dashboard() {
               <div>
                 <p className="text-sm text-gray-600 mb-1">{stat.title}</p>
                 <p className="text-3xl font-bold text-gray-900">
-                  {isLoading ? '...' : stat.value}
+                  {(isLoading || loadingAvailable) ? '...' : stat.value}
                 </p>
               </div>
               <div className={`${stat.bgColor} ${stat.color} p-3 rounded-xl`}>

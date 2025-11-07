@@ -4,7 +4,8 @@ import {
   BookOpen, 
   Network, 
   Calendar, 
-  GraduationCap
+  GraduationCap,
+  Link2
 } from 'lucide-react';
 import { useApprovedCourses } from '../store/approvedCourses';
 
@@ -20,6 +21,7 @@ const navItems: NavItem[] = [
   { path: '/graph', icon: <Network />, label: 'Correlativas' },
   { path: '/planner', icon: <Calendar />, label: 'Planificador' },
   { path: '/algorithms', icon: <GraduationCap />, label: 'Algoritmos' },
+  { path: '/relationships', icon: <Link2 />, label: 'Relaciones' },
 ];
 
 export default function MainLayout() {

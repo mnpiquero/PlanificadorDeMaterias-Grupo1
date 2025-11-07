@@ -67,9 +67,15 @@ public class CourseController {
             });
     }
 
-    /** Listar todas las materias */
+    /** Listar todas las materias (SSE - streaming) */
     @GetMapping(value={"","/"}, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     Flux<Course> all(){ return repo.findAll(); }
+
+    /** Listar todas las materias (JSON - para frontend) */
+    @GetMapping(value="/list", produces = MediaType.APPLICATION_JSON_VALUE)
+    Mono<java.util.List<Course>> allList(){ 
+        return repo.findAll().collectList(); 
+    }
 
     /** Obtener materia por código */
     @GetMapping("/{code}")
