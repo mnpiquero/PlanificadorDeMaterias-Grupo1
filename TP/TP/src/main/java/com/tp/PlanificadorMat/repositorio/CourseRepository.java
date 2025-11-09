@@ -20,6 +20,15 @@ public interface CourseRepository extends ReactiveNeo4jRepository<Course, String
     """)
     Flux<Course> allCourses();
 
+    // hidrata la colección 'prereqs' del entity Course
+    @Query("""
+      MATCH (c:Course)
+      OPTIONAL MATCH (c)-[:REQUIRES]->(p:Course)
+      RETURN c, collect(p) AS prereqs
+    """)
+    Flux<Course> allCoursesWithPrereqs();
+
+
     /** Prerrequisitos (REQUIRES) de un curso dado */
     @Query("""
       MATCH (c:Course {code:$code})-[:REQUIRES]->(p:Course)

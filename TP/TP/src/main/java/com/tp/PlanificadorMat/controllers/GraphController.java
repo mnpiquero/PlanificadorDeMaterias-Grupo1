@@ -1,9 +1,10 @@
 package com.tp.PlanificadorMat.controllers;
 
+import com.tp.PlanificadorMat.servicio.GraphService;
+import com.tp.PlanificadorMat.servicio.DijkstraService;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import com.tp.PlanificadorMat.servicio.GraphService;
 
 import java.util.List;
 import java.util.Map;
@@ -13,15 +14,17 @@ import java.util.Map;
 @RequestMapping("/graph")
 public class GraphController {
 
-    private final GraphService svc;
+    private final GraphService svc;          // DFS/BFS/Topo/Cycles/MST
+    private final DijkstraService dijkstra;  // NUEVO servicio para shortest path
 
-    public GraphController(GraphService svc) {
+    public GraphController(GraphService svc, DijkstraService dijkstra) {
         this.svc = svc;
+        this.dijkstra = dijkstra;
     }
 
     /** DFS: O(V+E) */
     @GetMapping("/dfs")
-    public reactor.core.publisher.Mono<java.util.List<String>> dfs(@RequestParam String from) {
+    public Mono<List<String>> dfs(@RequestParam String from) {
         return svc.dfs(from).collectList();
     }
 
@@ -43,12 +46,16 @@ public class GraphController {
         return svc.hasCycle().map(b -> Map.of("hasCycle", b));
     }
 
-    /** Dijkstra O((V+E) log V): shortest path según métrica */
+    /**
+     * Dijkstra O((V+E) log V): shortest path según métrica y dirección
+     * direction = prereqs (default) | dependents
+     */
     @GetMapping("/shortest")
     public Mono<List<String>> shortest(@RequestParam String from,
                                        @RequestParam String to,
-                                       @RequestParam(required = false) String metric) {
-        return svc.shortestPath(from, to, metric);
+                                       @RequestParam(required = false) String metric,
+                                       @RequestParam(required = false, defaultValue = "prereqs") String direction) {
+        return dijkstra.shortestPath(from, to, metric, direction);
     }
 
     /** MST (Prim/Kruskal) sobre RELATED: O(E log V) */
@@ -60,4 +67,7 @@ public class GraphController {
                         .toList()
         );
     }
+
+    /** DTO simple para exponer aristas del MST */
+    public record MstEdgeDTO(String from, String to, double weight) { }
 }
