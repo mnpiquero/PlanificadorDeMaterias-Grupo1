@@ -1,20 +1,13 @@
 package com.tp.PlanificadorMat.servicio;
 
-
 import com.tp.PlanificadorMat.modelo.Course;
+import com.tp.PlanificadorMat.repositorio.CourseRepository;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import com.tp.PlanificadorMat.repositorio.CourseRepository;
-
-import java.util.AbstractMap;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-
 
 import java.util.*;
+import java.util.AbstractMap;
 import java.util.stream.Collectors;
 
 /**
@@ -27,27 +20,25 @@ public class GraphService {
     public GraphService(CourseRepository repo){ this.repo = repo; }
 
     //--- Util: construir grafo en memoria ---
-    // GraphService.java
     private Mono<Map<String, Set<String>>> buildAdj() {
         return repo.allCourses()
-                .map(com.tp.PlanificadorMat.modelo.Course::getCode) // Flux<String>
-                .collectList()                                      // Mono<List<String>> codes
+                .map(Course::getCode) // Flux<String>
+                .collectList()        // Mono<List<String>> codes
                 .flatMap(codes ->
-                        Flux.fromIterable(codes)                        // Flux<String> code
+                        Flux.fromIterable(codes) // Flux<String> code
                                 .flatMap(code ->
-                                        repo.prereqsOf(code)                    // Flux<Course>
-                                                .map(com.tp.PlanificadorMat.modelo.Course::getCode) // Flux<String>
-                                                .collectList()                      // Mono<List<String>>
+                                        repo.prereqsOf(code)                 // Flux<Course>
+                                                .map(Course::getCode)        // Flux<String>
+                                                .collectList()               // Mono<List<String>>
                                                 .map(list -> new AbstractMap.SimpleEntry<>(
                                                         code,
-                                                        new HashSet<String>(list)   // <-- genérico explícito
+                                                        new HashSet<String>(list)
                                                 ))
                                 )
-                                // Forzamos el tipo del Map resultante
                                 .collectMap(
                                         AbstractMap.SimpleEntry::getKey,
                                         AbstractMap.SimpleEntry::getValue,
-                                        () -> new HashMap<String, Set<String>>()   // <-- proveedor tipado
+                                        () -> new HashMap<String, Set<String>>()
                                 )
                                 .map(adj -> {
                                     // asegurar nodos sin salientes
@@ -58,8 +49,6 @@ public class GraphService {
                                 })
                 );
     }
-
-
 
     // --- DFS desde un nodo (sobre edges REQUIRES salientes) ---
     public Flux<String> dfs(String from) {
@@ -132,7 +121,7 @@ public class GraphService {
         });
     }
 
-    // --- Ciclos: si Kahn no visita todos los nodos sin aprobadas, o por Cypher anyCycle ---
+    // --- Ciclos: por Cypher anyCycle ---
     public Mono<Boolean> hasCycle() {
         return repo.anyCycle().hasElements();
     }
@@ -191,7 +180,6 @@ public class GraphService {
         });
     }
 
-
     private double weightOf(Course c, String metric) {
         if (c==null) return 1.0;
         return switch (metric) {
@@ -206,9 +194,9 @@ public class GraphService {
         return repo.relatedEdges().collectList().map(edges -> {
             List<Edge> list = new ArrayList<>();
             for (var e : edges) {
-                double sim = e.getSim() == null ? 0.0 : e.getSim();
+                double sim = (e.sim() == null) ? 0.0 : e.sim();  // <<<<<< CAMBIO: accessor de record
                 double w = sim <= 0 ? Double.POSITIVE_INFINITY : 1.0 / sim;
-                list.add(new Edge(e.getFrom(), e.getTo(), w));
+                list.add(new Edge(e.from(), e.to(), w));        // <<<<<< CAMBIO: accessors de record
             }
             Set<String> nodes = new HashSet<>();
             list.forEach(ed -> { nodes.add(ed.u()); nodes.add(ed.v()); });
@@ -217,7 +205,6 @@ public class GraphService {
             return mstPrim(nodes, list);
         });
     }
-
 
     private List<Edge> mstPrim(Set<String> nodes, List<Edge> edges) {
         if (nodes.isEmpty()) return List.of();
@@ -263,5 +250,4 @@ public class GraphService {
     }
 
     public record Edge(String u, String v, double w) {}
-
 }

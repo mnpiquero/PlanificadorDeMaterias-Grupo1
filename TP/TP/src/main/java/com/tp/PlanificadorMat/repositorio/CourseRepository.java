@@ -20,14 +20,13 @@ public interface CourseRepository extends ReactiveNeo4jRepository<Course, String
     """)
     Flux<Course> allCourses();
 
-    // hidrata la colección 'prereqs' del entity Course
+    /** Hidrata la colección 'prereqs' del entity Course */
     @Query("""
       MATCH (c:Course)
       OPTIONAL MATCH (c)-[:REQUIRES]->(p:Course)
       RETURN c, collect(p) AS prereqs
     """)
     Flux<Course> allCoursesWithPrereqs();
-
 
     /** Prerrequisitos (REQUIRES) de un curso dado */
     @Query("""
@@ -52,19 +51,20 @@ public interface CourseRepository extends ReactiveNeo4jRepository<Course, String
     """)
     Flux<Object> anyCycle();
 
-    /** Subgrafo no dirigido RELATED para MST (Prim/Kruskal) */
+    /** Subgrafo no dirigido RELATED para MST (Prim/Kruskal) -> DTO/record explícito */
     @Query("""
       MATCH (a:Course)-[r:RELATED]-(b:Course)
-      RETURN a.code AS from, b.code AS to, r.sim AS sim
+      WHERE a <> b
+      RETURN a.code AS from, b.code AS to, COALESCE(r.sim, 0.0) AS sim
     """)
-    Flux<RelatedEdge> relatedEdges();
+    Flux<RelatedEdgeRow> relatedEdges();
 
-    /** Proyección para edges RELATED */
-    interface RelatedEdge {
-        String getFrom();
-        String getTo();
-        Double getSim();
-    }
+    /** Obtener RELATED de un curso (mismo DTO) */
+    @Query("""
+      MATCH (a:Course {code:$code})-[r:RELATED]-(b:Course)
+      RETURN a.code AS from, b.code AS to, COALESCE(r.sim, 0.0) AS sim
+    """)
+    Flux<RelatedEdgeRow> getRelatedCourses(String code);
 
     /** Búsqueda por nombre (case insensitive) */
     @Query("""
@@ -124,13 +124,6 @@ public interface CourseRepository extends ReactiveNeo4jRepository<Course, String
     """)
     Mono<Long> deleteRelatedRelationship(String fromCode, String toCode);
 
-    /** Obtener relaciones RELATED de un curso (mismo shape que RelatedEdge) */
-    @Query("""
-      MATCH (a:Course {code:$code})-[r:RELATED]-(b:Course)
-      RETURN b.code AS from, a.code AS to, r.sim AS sim
-    """)
-    Flux<RelatedEdge> getRelatedCourses(String code);
-
     /** Actualizar similitud de una relación RELATED existente */
     @Query("""
       MATCH (a:Course {code:$fromCode})-[r:RELATED]-(b:Course {code:$toCode})
@@ -139,6 +132,9 @@ public interface CourseRepository extends ReactiveNeo4jRepository<Course, String
     """)
     Mono<Long> updateRelatedSimilarity(String fromCode, String toCode, Double similarity);
 
-    /** Utilidad: traer cursos por lista de códigos (usado en endpoints de schedule/approved, etc.) */
+    /** Traer cursos por lista de códigos (usado en endpoints de schedule/approved, etc.) */
     Flux<Course> findAllByCodeIn(Collection<String> codes);
+
+    /** ---- DTO/Record para mapear los resultados escalar/columnas ---- */
+    record RelatedEdgeRow(String from, String to, Double sim) {}
 }

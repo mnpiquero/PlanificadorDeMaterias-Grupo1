@@ -2,6 +2,7 @@ package com.tp.PlanificadorMat.controllers;
 
 import com.tp.PlanificadorMat.servicio.GraphService;
 import com.tp.PlanificadorMat.servicio.DijkstraService;
+import com.tp.PlanificadorMat.servicio.PrimService;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -9,17 +10,19 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 import java.util.Map;
 
-/** Grafos: DFS/BFS, topo, ciclos, Dijkstra, MST */
+/** Grafos: DFS/BFS, Toposort, Ciclos, Dijkstra, MST (Prim/Kruskal) */
 @RestController
 @RequestMapping("/graph")
 public class GraphController {
 
-    private final GraphService svc;          // DFS/BFS/Topo/Cycles/MST
-    private final DijkstraService dijkstra;  // NUEVO servicio para shortest path
+    private final GraphService svc;          // DFS/BFS/Topo/Cycles + Kruskal
+    private final DijkstraService dijkstra;  // Shortest path
+    private final PrimService prim;          // Prim array-based
 
-    public GraphController(GraphService svc, DijkstraService dijkstra) {
+    public GraphController(GraphService svc, DijkstraService dijkstra, PrimService prim) {
         this.svc = svc;
         this.dijkstra = dijkstra;
+        this.prim = prim;
     }
 
     /** DFS: O(V+E) */
@@ -28,7 +31,7 @@ public class GraphController {
         return svc.dfs(from).collectList();
     }
 
-    /** BFS layers: O(V+E) */
+    /** BFS por capas: O(V+E) */
     @GetMapping("/bfs-layers")
     public Flux<List<String>> bfs(@RequestParam String from) {
         return svc.bfsLayers(from);
@@ -40,7 +43,7 @@ public class GraphController {
         return svc.topoOrder(approved);
     }
 
-    /** Ciclos: true/false (O(V+E)) */
+    /** Detección de ciclos (true/false) */
     @GetMapping("/cycles")
     public Mono<Map<String, Boolean>> cycles() {
         return svc.hasCycle().map(b -> Map.of("hasCycle", b));
@@ -58,16 +61,28 @@ public class GraphController {
         return dijkstra.shortestPath(from, to, metric, direction);
     }
 
-    /** MST (Prim/Kruskal) sobre RELATED: O(E log V) */
+    /**
+     * MST sobre RELATED:
+     * - algo=prim     -> usa PrimService (array-based)
+     * - algo=kruskal  -> usa GraphService.mst("kruskal")
+     */
     @GetMapping("/mst")
     public Mono<List<MstEdgeDTO>> mst(@RequestParam(defaultValue = "prim") String algo) {
-        return svc.mst(algo).map(list ->
+        if ("kruskal".equalsIgnoreCase(algo)) {
+            return svc.mst("kruskal").map(list ->
+                    list.stream()
+                            .map(e -> new MstEdgeDTO(e.u(), e.v(), e.w()))
+                            .toList()
+            );
+        }
+        // default: prim
+        return prim.primMST().map(list ->
                 list.stream()
-                        .map(e -> new MstEdgeDTO(e.u(), e.v(), e.w()))
+                        .map(e -> new MstEdgeDTO(e.from(), e.to(), (double) e.weight()))
                         .toList()
         );
     }
 
-    /** DTO simple para exponer aristas del MST */
+    /** DTO unificado para exponer aristas del MST */
     public record MstEdgeDTO(String from, String to, double weight) { }
 }
