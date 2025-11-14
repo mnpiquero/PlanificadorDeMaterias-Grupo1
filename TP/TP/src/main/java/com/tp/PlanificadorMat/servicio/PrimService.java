@@ -54,93 +54,94 @@ public class PrimService {
      * @param startNode Código del nodo inicial (null = primer nodo alfabético)
      */
     public Mono<List<EdgeDTO>> primMST(String startNode) {
-        return repo.relatedEdges().collectList().flatMap(rs -> {
-            log.debug("RELATED edges leídas desde Neo4j: {}", rs.size());
+        return repo.relatedEdges().collectList().flatMap(relatedEdges -> {
+            log.debug("RELATED edges leídas desde Neo4j: {}", relatedEdges.size());
 
             // 1) Extraer todos los nodos únicos del grafo
-            Set<String> nodes = new HashSet<>();
-            for (RelatedEdgeRow e : rs) {
-                if (e.from() != null) nodes.add(e.from());
-                if (e.to()   != null) nodes.add(e.to());
+            Set<String> allNodes = new HashSet<>();
+            for (RelatedEdgeRow edgeRow : relatedEdges) {
+                if (edgeRow.from() != null) allNodes.add(edgeRow.from());
+                if (edgeRow.to()   != null) allNodes.add(edgeRow.to());
             }
-            if (nodes.isEmpty()) {
+            if (allNodes.isEmpty()) {
                 log.warn("No hay aristas RELATED o el repositorio no devolvió datos. MST vacío.");
                 return Mono.just(List.of());
             }
 
             // 2) Crear índice bidireccional: código de curso <-> índice numérico
-            List<String> codes = new ArrayList<>(nodes);
-            codes.sort(Comparator.naturalOrder());
+            List<String> sortedNodeCodes = new ArrayList<>(allNodes);
+            sortedNodeCodes.sort(Comparator.naturalOrder());
             
             // Si se especifica startNode, ponerlo al inicio
-            if (startNode != null && codes.contains(startNode)) {
-                codes.remove(startNode);
-                codes.add(0, startNode);
+            if (startNode != null && sortedNodeCodes.contains(startNode)) {
+                sortedNodeCodes.remove(startNode);
+                sortedNodeCodes.add(0, startNode);
                 log.debug("Prim iniciando desde nodo especificado: {}", startNode);
             } else if (startNode != null) {
                 log.warn("Nodo inicial '{}' no encontrado en el grafo. Usando primer nodo alfabético.", startNode);
             }
             
-            Map<String,Integer> idx = new HashMap<>();
-            for (int i=0;i<codes.size();i++) idx.put(codes.get(i), i);
-            int n = codes.size();
+            Map<String,Integer> codeToIndex = new HashMap<>();
+            for (int i=0;i<sortedNodeCodes.size();i++) codeToIndex.put(sortedNodeCodes.get(i), i);
+            int numNodes = sortedNodeCodes.size();
 
             // 3) Construir lista de adyacencia no dirigida (grafo bidireccional)
-            List<List<int[]>> graph = new ArrayList<>(n);
-            for (int i=0;i<n;i++) graph.add(new ArrayList<>());
+            List<List<int[]>> adjacencyList = new ArrayList<>(numNodes);
+            for (int i=0;i<numNodes;i++) adjacencyList.add(new ArrayList<>());
 
-            int added = 0;
-            for (RelatedEdgeRow e : rs) {
-                double sim = (e.sim() == null) ? 0.0 : e.sim();
-                if (sim <= 0) continue; // Descartar aristas con similitud inválida
+            int validEdgesCount = 0;
+            for (RelatedEdgeRow edgeRow : relatedEdges) {
+                double similarity = (edgeRow.sim() == null) ? 0.0 : edgeRow.sim();
+                if (similarity <= 0) continue; // Descartar aristas con similitud inválida
 
-                Integer u = idx.get(e.from());
-                Integer v = idx.get(e.to());
-                if (u == null || v == null) continue;
+                Integer fromIndex = codeToIndex.get(edgeRow.from());
+                Integer toIndex = codeToIndex.get(edgeRow.to());
+                if (fromIndex == null || toIndex == null) continue;
 
                 // Convertir similitud a peso: mayor similitud = menor peso
-                int w = (int)Math.max(1, Math.round((1.0 / sim) * SCALE));
-                graph.get(u).add(new int[]{v, w});
-                graph.get(v).add(new int[]{u, w}); // Grafo no dirigido
-                added++;
+                int weight = (int)Math.max(1, Math.round((1.0 / similarity) * SCALE));
+                adjacencyList.get(fromIndex).add(new int[]{toIndex, weight});
+                adjacencyList.get(toIndex).add(new int[]{fromIndex, weight}); // Grafo no dirigido
+                validEdgesCount++;
             }
-            log.debug("Aristas válidas para Prim (sim>0): {}", added);
-            if (added == 0) {
+            log.debug("Aristas válidas para Prim (sim>0): {}", validEdgesCount);
+            if (validEdgesCount == 0) {
                 log.warn("Hay nodos pero ninguna arista RELATED con sim>0. MST vacío.");
                 return Mono.just(List.of());
             }
 
             // 4) Algoritmo de Prim: construir MST desde nodo inicial
-            int[] key = new int[n];      // Peso mínimo conocido para llegar a cada nodo
-            int[] parent = new int[n];   // Padre de cada nodo en el MST
-            boolean[] inMST = new boolean[n]; // Nodos ya incluidos en el MST
-            Arrays.fill(key, INF);
-            Arrays.fill(parent, -1);
-            key[0] = 0; // Nodo inicial con peso 0
+            int[] minWeight = new int[numNodes];      // Peso mínimo conocido para llegar a cada nodo
+            int[] parentIndex = new int[numNodes];   // Padre de cada nodo en el MST
+            boolean[] inMST = new boolean[numNodes]; // Nodos ya incluidos en el MST
+            Arrays.fill(minWeight, INF);
+            Arrays.fill(parentIndex, -1);
+            minWeight[0] = 0; // Nodo inicial con peso 0
 
             // Iterar V-1 veces (MST tiene V-1 aristas)
-            for (int c = 0; c < n - 1; c++) {
+            for (int iteration = 0; iteration < numNodes - 1; iteration++) {
                 // Seleccionar nodo con menor key que aún no está en MST
-                int u = minKey(n, key, inMST);
-                if (u == -1) break; // Grafo desconectado: no hay más nodos alcanzables
-                inMST[u] = true; // Agregar nodo u al MST
+                int currentNodeIndex = minKey(numNodes, minWeight, inMST);
+                if (currentNodeIndex == -1) break; // Grafo desconectado: no hay más nodos alcanzables
+                inMST[currentNodeIndex] = true; // Agregar nodo al MST
 
                 // Actualizar keys de vecinos no incluidos en MST
-                for (int[] nb : graph.get(u)) {
-                    int v = nb[0], w = nb[1];
-                    if (!inMST[v] && w < key[v]) {
-                        key[v] = w;        // Actualizar peso mínimo
-                        parent[v] = u;     // Registrar padre
+                for (int[] neighborEdge : adjacencyList.get(currentNodeIndex)) {
+                    int neighborIndex = neighborEdge[0];
+                    int edgeWeight = neighborEdge[1];
+                    if (!inMST[neighborIndex] && edgeWeight < minWeight[neighborIndex]) {
+                        minWeight[neighborIndex] = edgeWeight;        // Actualizar peso mínimo
+                        parentIndex[neighborIndex] = currentNodeIndex;     // Registrar padre
                     }
                 }
             }
 
             // 5) Reconstruir MST: convertir estructura de padres a lista de aristas
             List<EdgeDTO> mst = new ArrayList<>();
-            for (int v = 1; v < n; v++) {
-                int p = parent[v];
-                if (p != -1) {
-                    mst.add(new EdgeDTO(codes.get(p), codes.get(v), key[v]));
+            for (int nodeIndex = 1; nodeIndex < numNodes; nodeIndex++) {
+                int parentIdx = parentIndex[nodeIndex];
+                if (parentIdx != -1) {
+                    mst.add(new EdgeDTO(sortedNodeCodes.get(parentIdx), sortedNodeCodes.get(nodeIndex), minWeight[nodeIndex]));
                 }
             }
             log.debug("Aristas en MST: {}", mst.size());
@@ -152,12 +153,15 @@ public class PrimService {
      * Encuentra el nodo con menor key que aún no está en el MST.
      * Complejidad: O(V) - búsqueda lineal.
      */
-    private int minKey(int n, int[] key, boolean[] inMST) {
-        int min = INF, minIdx = -1;
-        for (int i = 0; i < n; i++) {
-            if (!inMST[i] && key[i] < min) { min = key[i]; minIdx = i; }
+    private int minKey(int numNodes, int[] minWeight, boolean[] inMST) {
+        int minWeightValue = INF, minIndex = -1;
+        for (int nodeIndex = 0; nodeIndex < numNodes; nodeIndex++) {
+            if (!inMST[nodeIndex] && minWeight[nodeIndex] < minWeightValue) { 
+                minWeightValue = minWeight[nodeIndex]; 
+                minIndex = nodeIndex; 
+            }
         }
-        return minIdx; // -1 si no hay nodos disponibles (grafo desconectado)
+        return minIndex; // -1 si no hay nodos disponibles (grafo desconectado)
     }
     
     /**
@@ -165,96 +169,97 @@ public class PrimService {
      * Retorna múltiples árboles (uno por área temática/componente)
      */
     public Mono<List<ComponentMST>> primForest() {
-        return repo.relatedEdges().collectList().flatMap(rs -> {
-            log.debug("RELATED edges para Forest: {}", rs.size());
+        return repo.relatedEdges().collectList().flatMap(relatedEdges -> {
+            log.debug("RELATED edges para Forest: {}", relatedEdges.size());
             
             // 1) Construir grafo
             Set<String> allNodes = new HashSet<>();
-            for (RelatedEdgeRow e : rs) {
-                if (e.from() != null) allNodes.add(e.from());
-                if (e.to() != null) allNodes.add(e.to());
+            for (RelatedEdgeRow edgeRow : relatedEdges) {
+                if (edgeRow.from() != null) allNodes.add(edgeRow.from());
+                if (edgeRow.to() != null) allNodes.add(edgeRow.to());
             }
             
             if (allNodes.isEmpty()) {
                 return Mono.just(List.of());
             }
             
-            List<String> codes = new ArrayList<>(allNodes);
-            codes.sort(Comparator.naturalOrder());
-            Map<String, Integer> idx = new HashMap<>();
-            for (int i = 0; i < codes.size(); i++) idx.put(codes.get(i), i);
-            int n = codes.size();
+            List<String> sortedNodeCodes = new ArrayList<>(allNodes);
+            sortedNodeCodes.sort(Comparator.naturalOrder());
+            Map<String, Integer> codeToIndex = new HashMap<>();
+            for (int i = 0; i < sortedNodeCodes.size(); i++) codeToIndex.put(sortedNodeCodes.get(i), i);
+            int numNodes = sortedNodeCodes.size();
             
             // Lista de adyacencia
-            List<List<int[]>> graph = new ArrayList<>(n);
-            for (int i = 0; i < n; i++) graph.add(new ArrayList<>());
+            List<List<int[]>> adjacencyList = new ArrayList<>(numNodes);
+            for (int i = 0; i < numNodes; i++) adjacencyList.add(new ArrayList<>());
             
-            for (RelatedEdgeRow e : rs) {
-                double sim = (e.sim() == null) ? 0.0 : e.sim();
-                if (sim <= 0) continue;
+            for (RelatedEdgeRow edgeRow : relatedEdges) {
+                double similarity = (edgeRow.sim() == null) ? 0.0 : edgeRow.sim();
+                if (similarity <= 0) continue;
                 
-                Integer u = idx.get(e.from());
-                Integer v = idx.get(e.to());
-                if (u == null || v == null) continue;
+                Integer fromIndex = codeToIndex.get(edgeRow.from());
+                Integer toIndex = codeToIndex.get(edgeRow.to());
+                if (fromIndex == null || toIndex == null) continue;
                 
-                int w = (int) Math.max(1, Math.round((1.0 / sim) * SCALE));
-                graph.get(u).add(new int[]{v, w});
-                graph.get(v).add(new int[]{u, w});
+                int weight = (int) Math.max(1, Math.round((1.0 / similarity) * SCALE));
+                adjacencyList.get(fromIndex).add(new int[]{toIndex, weight});
+                adjacencyList.get(toIndex).add(new int[]{fromIndex, weight});
             }
             
             // 2) Encontrar componentes conexas: ejecutar Prim en cada componente desconectada
-            boolean[] visited = new boolean[n];
+            boolean[] visited = new boolean[numNodes];
             List<ComponentMST> forest = new ArrayList<>();
             int componentId = 1;
             
             // Iterar sobre todos los nodos para encontrar componentes
-            for (int start = 0; start < n; start++) {
-                if (visited[start]) continue; // Ya procesado en otra componente
+            for (int startNodeIndex = 0; startNodeIndex < numNodes; startNodeIndex++) {
+                if (visited[startNodeIndex]) continue; // Ya procesado en otra componente
                 
                 // Ejecutar Prim desde este nodo no visitado (nueva componente)
-                int[] key = new int[n];
-                int[] parent = new int[n];
-                boolean[] inMST = new boolean[n];
-                Arrays.fill(key, INF);
-                Arrays.fill(parent, -1);
-                key[start] = 0; // Nodo inicial de esta componente
+                int[] minWeight = new int[numNodes];
+                int[] parentIndex = new int[numNodes];
+                boolean[] inMST = new boolean[numNodes];
+                Arrays.fill(minWeight, INF);
+                Arrays.fill(parentIndex, -1);
+                minWeight[startNodeIndex] = 0; // Nodo inicial de esta componente
                 
                 List<EdgeDTO> componentEdges = new ArrayList<>();
                 Set<String> componentNodes = new HashSet<>();
                 int totalWeight = 0;
                 
                 // Prim: expandir MST hasta cubrir toda la componente
-                for (int c = 0; c < n; c++) {
-                    int u = minKey(n, key, inMST);
-                    if (u == -1) break; // No hay más nodos en esta componente
-                    inMST[u] = true;
-                    visited[u] = true; // Marcar como visitado globalmente
-                    componentNodes.add(codes.get(u));
+                for (int iteration = 0; iteration < numNodes; iteration++) {
+                    int currentNodeIndex = minKey(numNodes, minWeight, inMST);
+                    if (currentNodeIndex == -1) break; // No hay más nodos en esta componente
+                    inMST[currentNodeIndex] = true;
+                    visited[currentNodeIndex] = true; // Marcar como visitado globalmente
+                    componentNodes.add(sortedNodeCodes.get(currentNodeIndex));
                     
                     // Actualizar keys de vecinos
-                    for (int[] nb : graph.get(u)) {
-                        int v = nb[0], w = nb[1];
-                        if (!inMST[v] && w < key[v]) {
-                            key[v] = w;
-                            parent[v] = u;
+                    for (int[] neighborEdge : adjacencyList.get(currentNodeIndex)) {
+                        int neighborIndex = neighborEdge[0];
+                        int edgeWeight = neighborEdge[1];
+                        if (!inMST[neighborIndex] && edgeWeight < minWeight[neighborIndex]) {
+                            minWeight[neighborIndex] = edgeWeight;
+                            parentIndex[neighborIndex] = currentNodeIndex;
                         }
                     }
                 }
                 
                 // Reconstruir aristas del MST de esta componente
-                for (int v = 0; v < n; v++) {
-                    int p = parent[v];
-                    if (p != -1 && inMST[v]) {
-                        componentEdges.add(new EdgeDTO(codes.get(p), codes.get(v), key[v]));
-                        totalWeight += key[v];
+                for (int nodeIndex = 0; nodeIndex < numNodes; nodeIndex++) {
+                    int parentIdx = parentIndex[nodeIndex];
+                    if (parentIdx != -1 && inMST[nodeIndex]) {
+                        componentEdges.add(new EdgeDTO(sortedNodeCodes.get(parentIdx), sortedNodeCodes.get(nodeIndex), minWeight[nodeIndex]));
+                        totalWeight += minWeight[nodeIndex];
                     }
                 }
                 
                 // Agregar componente al bosque (incluso si es un nodo aislado)
                 if (!componentEdges.isEmpty() || componentNodes.size() == 1) {
-                    String compId = "component_" + componentId;
+                    String componentIdStr = "component_" + componentId;
                     forest.add(new ComponentMST(
-                        compId,
+                        componentIdStr,
                         new ArrayList<>(componentNodes),
                         componentEdges,
                         totalWeight

@@ -190,18 +190,18 @@ public class GraphService {
 
     // --- MST (Prim y Kruskal) sobre subgrafo no dirigido RELATED (peso = 1/sim) ---
     public Mono<List<Edge>> mst(String algo) {
-        return repo.relatedEdges().collectList().map(edges -> {
-            List<Edge> list = new ArrayList<>();
-            for (var e : edges) {
-                double sim = (e.sim() == null) ? 0.0 : e.sim();  // <<<<<< CAMBIO: accessor de record
-                double w = sim <= 0 ? Double.POSITIVE_INFINITY : 1.0 / sim;
-                list.add(new Edge(e.from(), e.to(), w));        // <<<<<< CAMBIO: accessors de record
+        return repo.relatedEdges().collectList().map(relatedEdges -> {
+            List<Edge> edgeList = new ArrayList<>();
+            for (var edgeRow : relatedEdges) {
+                double similarity = (edgeRow.sim() == null) ? 0.0 : edgeRow.sim();
+                double weight = similarity <= 0 ? Double.POSITIVE_INFINITY : 1.0 / similarity;
+                edgeList.add(new Edge(edgeRow.from(), edgeRow.to(), weight));
             }
-            Set<String> nodes = new HashSet<>();
-            list.forEach(ed -> { nodes.add(ed.u()); nodes.add(ed.v()); });
+            Set<String> allNodes = new HashSet<>();
+            edgeList.forEach(edge -> { allNodes.add(edge.u()); allNodes.add(edge.v()); });
 
-            if ("kruskal".equalsIgnoreCase(algo)) return mstKruskal(nodes, list);
-            return mstPrim(nodes, list);
+            if ("kruskal".equalsIgnoreCase(algo)) return mstKruskal(allNodes, edgeList);
+            return mstPrim(allNodes, edgeList);
         });
     }
 
@@ -209,33 +209,33 @@ public class GraphService {
      * Algoritmo de Prim con PriorityQueue (versión eficiente O(E log V)).
      * Construye MST agregando aristas de menor peso desde nodos ya incluidos.
      */
-    private List<Edge> mstPrim(Set<String> nodes, List<Edge> edges) {
-        if (nodes.isEmpty()) return List.of();
-        String start = nodes.iterator().next(); // Nodo inicial arbitrario
+    private List<Edge> mstPrim(Set<String> allNodes, List<Edge> allEdges) {
+        if (allNodes.isEmpty()) return List.of();
+        String startNode = allNodes.iterator().next(); // Nodo inicial arbitrario
         
         // Construir lista de adyacencia bidireccional
-        Map<String, List<Edge>> adj = new HashMap<>();
-        for (Edge e : edges) {
-            adj.computeIfAbsent(e.u,k->new ArrayList<>()).add(e);
-            adj.computeIfAbsent(e.v,k->new ArrayList<>()).add(new Edge(e.v,e.u,e.w)); // Arista inversa
+        Map<String, List<Edge>> adjacencyList = new HashMap<>();
+        for (Edge edge : allEdges) {
+            adjacencyList.computeIfAbsent(edge.u, k->new ArrayList<>()).add(edge);
+            adjacencyList.computeIfAbsent(edge.v, k->new ArrayList<>()).add(new Edge(edge.v, edge.u, edge.w)); // Arista inversa
         }
         
-        Set<String> vis = new HashSet<>(); // Nodos ya en el MST
+        Set<String> visitedNodes = new HashSet<>(); // Nodos ya en el MST
         List<Edge> mst = new ArrayList<>();
         // Cola de prioridad: aristas candidatas ordenadas por peso
-        PriorityQueue<Edge> pq = new PriorityQueue<>(Comparator.comparingDouble(ed->ed.w));
-        vis.add(start);
-        pq.addAll(adj.getOrDefault(start, List.of())); // Agregar aristas del nodo inicial
+        PriorityQueue<Edge> priorityQueue = new PriorityQueue<>(Comparator.comparingDouble(edge->edge.w));
+        visitedNodes.add(startNode);
+        priorityQueue.addAll(adjacencyList.getOrDefault(startNode, List.of())); // Agregar aristas del nodo inicial
 
         // Expandir MST hasta incluir todos los nodos
-        while(!pq.isEmpty() && vis.size()<nodes.size()){
-            Edge e = pq.poll(); // Arista de menor peso
-            if (vis.contains(e.v)) continue; // Ya conectado, ignorar
-            vis.add(e.v); 
-            mst.add(e); // Agregar arista al MST
+        while(!priorityQueue.isEmpty() && visitedNodes.size()<allNodes.size()){
+            Edge currentEdge = priorityQueue.poll(); // Arista de menor peso
+            if (visitedNodes.contains(currentEdge.v)) continue; // Ya conectado, ignorar
+            visitedNodes.add(currentEdge.v); 
+            mst.add(currentEdge); // Agregar arista al MST
             // Agregar nuevas aristas candidatas desde el nodo recién agregado
-            for (Edge nx : adj.getOrDefault(e.v, List.of())) 
-                if (!vis.contains(nx.v)) pq.add(nx);
+            for (Edge neighborEdge : adjacencyList.getOrDefault(currentEdge.v, List.of())) 
+                if (!visitedNodes.contains(neighborEdge.v)) priorityQueue.add(neighborEdge);
         }
         return mst;
     }
@@ -245,23 +245,24 @@ public class GraphService {
      * Ordena aristas por peso y agrega las que no forman ciclos.
      * Complejidad: O(E log E) por ordenamiento + O(E α(V)) por Union-Find.
      */
-    private List<Edge> mstKruskal(Set<String> nodes, List<Edge> edges) {
+    private List<Edge> mstKruskal(Set<String> allNodes, List<Edge> allEdges) {
         List<Edge> mst = new ArrayList<>();
         // Union-Find: cada nodo es su propio padre inicialmente
-        Map<String,String> parent = new HashMap<>();
-        for (String n : nodes) parent.put(n, n);
+        Map<String,String> parentMap = new HashMap<>();
+        for (String node : allNodes) parentMap.put(node, node);
         
         // Ordenar aristas por peso (greedy: siempre elegir la más liviana)
-        edges.sort(Comparator.comparingDouble(e->e.w));
+        allEdges.sort(Comparator.comparingDouble(edge->edge.w));
         
         // Procesar aristas en orden de peso creciente
-        for (Edge e : edges) {
-            String ru = find(parent, e.u), rv = find(parent, e.v); // Encontrar raíces
-            if (!ru.equals(rv)) { // Si están en componentes diferentes
-                parent.put(ru, rv); // Unir componentes (union)
-                mst.add(e); // Agregar arista al MST
+        for (Edge edge : allEdges) {
+            String rootFrom = find(parentMap, edge.u);
+            String rootTo = find(parentMap, edge.v); // Encontrar raíces
+            if (!rootFrom.equals(rootTo)) { // Si están en componentes diferentes
+                parentMap.put(rootFrom, rootTo); // Unir componentes (union)
+                mst.add(edge); // Agregar arista al MST
             }
-            // Si ru == rv, la arista formaría ciclo → ignorar
+            // Si rootFrom == rootTo, la arista formaría ciclo → ignorar
         }
         return mst;
     }
@@ -270,11 +271,11 @@ public class GraphService {
      * Find con compresión de camino (path compression).
      * Encuentra la raíz del conjunto y optimiza el árbol para futuras búsquedas.
      */
-    private String find(Map<String,String> p, String x) {
-        if (p.get(x).equals(x)) return x; // Raíz encontrada
-        String r = find(p, p.get(x)); // Buscar recursivamente
-        p.put(x, r); // Compresión: conectar directamente a la raíz
-        return r;
+    private String find(Map<String,String> parentMap, String node) {
+        if (parentMap.get(node).equals(node)) return node; // Raíz encontrada
+        String root = find(parentMap, parentMap.get(node)); // Buscar recursivamente
+        parentMap.put(node, root); // Compresión: conectar directamente a la raíz
+        return root;
     }
 
     public record Edge(String u, String v, double w) {}
