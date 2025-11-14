@@ -57,7 +57,7 @@ public class PrimService {
         return repo.relatedEdges().collectList().flatMap(rs -> {
             log.debug("RELATED edges leídas desde Neo4j: {}", rs.size());
 
-            // 1) nodos
+            // 1) Extraer todos los nodos únicos del grafo
             Set<String> nodes = new HashSet<>();
             for (RelatedEdgeRow e : rs) {
                 if (e.from() != null) nodes.add(e.from());
@@ -68,7 +68,7 @@ public class PrimService {
                 return Mono.just(List.of());
             }
 
-            // 2) indexado code <-> idx
+            // 2) Crear índice bidireccional: código de curso <-> índice numérico
             List<String> codes = new ArrayList<>(nodes);
             codes.sort(Comparator.naturalOrder());
             
@@ -85,22 +85,23 @@ public class PrimService {
             for (int i=0;i<codes.size();i++) idx.put(codes.get(i), i);
             int n = codes.size();
 
-            // 3) lista de adyacencia no dirigida: List<List<int[]{vecino, peso}>>
+            // 3) Construir lista de adyacencia no dirigida (grafo bidireccional)
             List<List<int[]>> graph = new ArrayList<>(n);
             for (int i=0;i<n;i++) graph.add(new ArrayList<>());
 
             int added = 0;
             for (RelatedEdgeRow e : rs) {
                 double sim = (e.sim() == null) ? 0.0 : e.sim();
-                if (sim <= 0) continue;
+                if (sim <= 0) continue; // Descartar aristas con similitud inválida
 
                 Integer u = idx.get(e.from());
                 Integer v = idx.get(e.to());
                 if (u == null || v == null) continue;
 
+                // Convertir similitud a peso: mayor similitud = menor peso
                 int w = (int)Math.max(1, Math.round((1.0 / sim) * SCALE));
                 graph.get(u).add(new int[]{v, w});
-                graph.get(v).add(new int[]{u, w});
+                graph.get(v).add(new int[]{u, w}); // Grafo no dirigido
                 added++;
             }
             log.debug("Aristas válidas para Prim (sim>0): {}", added);
@@ -109,29 +110,32 @@ public class PrimService {
                 return Mono.just(List.of());
             }
 
-            // 4) Prim clásico (minKey lineal)
-            int[] key = new int[n];
-            int[] parent = new int[n];
-            boolean[] inMST = new boolean[n];
+            // 4) Algoritmo de Prim: construir MST desde nodo inicial
+            int[] key = new int[n];      // Peso mínimo conocido para llegar a cada nodo
+            int[] parent = new int[n];   // Padre de cada nodo en el MST
+            boolean[] inMST = new boolean[n]; // Nodos ya incluidos en el MST
             Arrays.fill(key, INF);
             Arrays.fill(parent, -1);
-            key[0] = 0;
+            key[0] = 0; // Nodo inicial con peso 0
 
+            // Iterar V-1 veces (MST tiene V-1 aristas)
             for (int c = 0; c < n - 1; c++) {
+                // Seleccionar nodo con menor key que aún no está en MST
                 int u = minKey(n, key, inMST);
-                if (u == -1) break; // componente no conexa
-                inMST[u] = true;
+                if (u == -1) break; // Grafo desconectado: no hay más nodos alcanzables
+                inMST[u] = true; // Agregar nodo u al MST
 
+                // Actualizar keys de vecinos no incluidos en MST
                 for (int[] nb : graph.get(u)) {
                     int v = nb[0], w = nb[1];
                     if (!inMST[v] && w < key[v]) {
-                        key[v] = w;
-                        parent[v] = u;
+                        key[v] = w;        // Actualizar peso mínimo
+                        parent[v] = u;     // Registrar padre
                     }
                 }
             }
 
-            // 5) reconstrucción
+            // 5) Reconstruir MST: convertir estructura de padres a lista de aristas
             List<EdgeDTO> mst = new ArrayList<>();
             for (int v = 1; v < n; v++) {
                 int p = parent[v];
@@ -144,12 +148,16 @@ public class PrimService {
         });
     }
 
+    /**
+     * Encuentra el nodo con menor key que aún no está en el MST.
+     * Complejidad: O(V) - búsqueda lineal.
+     */
     private int minKey(int n, int[] key, boolean[] inMST) {
         int min = INF, minIdx = -1;
         for (int i = 0; i < n; i++) {
             if (!inMST[i] && key[i] < min) { min = key[i]; minIdx = i; }
         }
-        return minIdx;
+        return minIdx; // -1 si no hay nodos disponibles (grafo desconectado)
     }
     
     /**
@@ -194,33 +202,36 @@ public class PrimService {
                 graph.get(v).add(new int[]{u, w});
             }
             
-            // 2) Encontrar componentes conexas y ejecutar Prim en cada una
+            // 2) Encontrar componentes conexas: ejecutar Prim en cada componente desconectada
             boolean[] visited = new boolean[n];
             List<ComponentMST> forest = new ArrayList<>();
             int componentId = 1;
             
+            // Iterar sobre todos los nodos para encontrar componentes
             for (int start = 0; start < n; start++) {
-                if (visited[start]) continue;
+                if (visited[start]) continue; // Ya procesado en otra componente
                 
-                // Ejecutar Prim desde este nodo no visitado
+                // Ejecutar Prim desde este nodo no visitado (nueva componente)
                 int[] key = new int[n];
                 int[] parent = new int[n];
                 boolean[] inMST = new boolean[n];
                 Arrays.fill(key, INF);
                 Arrays.fill(parent, -1);
-                key[start] = 0;
+                key[start] = 0; // Nodo inicial de esta componente
                 
                 List<EdgeDTO> componentEdges = new ArrayList<>();
                 Set<String> componentNodes = new HashSet<>();
                 int totalWeight = 0;
                 
+                // Prim: expandir MST hasta cubrir toda la componente
                 for (int c = 0; c < n; c++) {
                     int u = minKey(n, key, inMST);
-                    if (u == -1) break;
+                    if (u == -1) break; // No hay más nodos en esta componente
                     inMST[u] = true;
-                    visited[u] = true;
+                    visited[u] = true; // Marcar como visitado globalmente
                     componentNodes.add(codes.get(u));
                     
+                    // Actualizar keys de vecinos
                     for (int[] nb : graph.get(u)) {
                         int v = nb[0], w = nb[1];
                         if (!inMST[v] && w < key[v]) {
@@ -230,7 +241,7 @@ public class PrimService {
                     }
                 }
                 
-                // Reconstruir aristas de esta componente
+                // Reconstruir aristas del MST de esta componente
                 for (int v = 0; v < n; v++) {
                     int p = parent[v];
                     if (p != -1 && inMST[v]) {
@@ -239,6 +250,7 @@ public class PrimService {
                     }
                 }
                 
+                // Agregar componente al bosque (incluso si es un nodo aislado)
                 if (!componentEdges.isEmpty() || componentNodes.size() == 1) {
                     String compId = "component_" + componentId;
                     forest.add(new ComponentMST(

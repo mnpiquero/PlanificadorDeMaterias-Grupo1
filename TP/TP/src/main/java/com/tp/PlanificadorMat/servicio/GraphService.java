@@ -8,7 +8,6 @@ import reactor.core.publisher.Mono;
 
 import java.util.*;
 import java.util.AbstractMap;
-import java.util.stream.Collectors;
 
 /**
  * DFS/BFS, Toposort (Kahn), ciclos, Dijkstra, MST (Prim/Kruskal)
@@ -206,46 +205,75 @@ public class GraphService {
         });
     }
 
+    /**
+     * Algoritmo de Prim con PriorityQueue (versión eficiente O(E log V)).
+     * Construye MST agregando aristas de menor peso desde nodos ya incluidos.
+     */
     private List<Edge> mstPrim(Set<String> nodes, List<Edge> edges) {
         if (nodes.isEmpty()) return List.of();
-        String start = nodes.iterator().next();
+        String start = nodes.iterator().next(); // Nodo inicial arbitrario
+        
+        // Construir lista de adyacencia bidireccional
         Map<String, List<Edge>> adj = new HashMap<>();
         for (Edge e : edges) {
             adj.computeIfAbsent(e.u,k->new ArrayList<>()).add(e);
-            adj.computeIfAbsent(e.v,k->new ArrayList<>()).add(new Edge(e.v,e.u,e.w));
+            adj.computeIfAbsent(e.v,k->new ArrayList<>()).add(new Edge(e.v,e.u,e.w)); // Arista inversa
         }
-        Set<String> vis = new HashSet<>();
+        
+        Set<String> vis = new HashSet<>(); // Nodos ya en el MST
         List<Edge> mst = new ArrayList<>();
+        // Cola de prioridad: aristas candidatas ordenadas por peso
         PriorityQueue<Edge> pq = new PriorityQueue<>(Comparator.comparingDouble(ed->ed.w));
         vis.add(start);
-        pq.addAll(adj.getOrDefault(start, List.of()));
+        pq.addAll(adj.getOrDefault(start, List.of())); // Agregar aristas del nodo inicial
 
+        // Expandir MST hasta incluir todos los nodos
         while(!pq.isEmpty() && vis.size()<nodes.size()){
-            Edge e = pq.poll();
-            if (vis.contains(e.v)) continue;
-            vis.add(e.v); mst.add(e);
-            for (Edge nx : adj.getOrDefault(e.v, List.of())) if (!vis.contains(nx.v)) pq.add(nx);
+            Edge e = pq.poll(); // Arista de menor peso
+            if (vis.contains(e.v)) continue; // Ya conectado, ignorar
+            vis.add(e.v); 
+            mst.add(e); // Agregar arista al MST
+            // Agregar nuevas aristas candidatas desde el nodo recién agregado
+            for (Edge nx : adj.getOrDefault(e.v, List.of())) 
+                if (!vis.contains(nx.v)) pq.add(nx);
         }
         return mst;
     }
 
+    /**
+     * Algoritmo de Kruskal con Union-Find.
+     * Ordena aristas por peso y agrega las que no forman ciclos.
+     * Complejidad: O(E log E) por ordenamiento + O(E α(V)) por Union-Find.
+     */
     private List<Edge> mstKruskal(Set<String> nodes, List<Edge> edges) {
         List<Edge> mst = new ArrayList<>();
+        // Union-Find: cada nodo es su propio padre inicialmente
         Map<String,String> parent = new HashMap<>();
         for (String n : nodes) parent.put(n, n);
+        
+        // Ordenar aristas por peso (greedy: siempre elegir la más liviana)
         edges.sort(Comparator.comparingDouble(e->e.w));
+        
+        // Procesar aristas en orden de peso creciente
         for (Edge e : edges) {
-            String ru = find(parent, e.u), rv = find(parent, e.v);
-            if (!ru.equals(rv)) {
-                parent.put(ru, rv); mst.add(e);
+            String ru = find(parent, e.u), rv = find(parent, e.v); // Encontrar raíces
+            if (!ru.equals(rv)) { // Si están en componentes diferentes
+                parent.put(ru, rv); // Unir componentes (union)
+                mst.add(e); // Agregar arista al MST
             }
+            // Si ru == rv, la arista formaría ciclo → ignorar
         }
         return mst;
     }
+    
+    /**
+     * Find con compresión de camino (path compression).
+     * Encuentra la raíz del conjunto y optimiza el árbol para futuras búsquedas.
+     */
     private String find(Map<String,String> p, String x) {
-        if (p.get(x).equals(x)) return x;
-        String r = find(p, p.get(x));
-        p.put(x, r);
+        if (p.get(x).equals(x)) return x; // Raíz encontrada
+        String r = find(p, p.get(x)); // Buscar recursivamente
+        p.put(x, r); // Compresión: conectar directamente a la raíz
         return r;
     }
 
