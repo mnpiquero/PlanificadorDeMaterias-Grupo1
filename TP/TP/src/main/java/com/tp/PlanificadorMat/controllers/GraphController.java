@@ -65,9 +65,12 @@ public class GraphController {
      * MST sobre RELATED:
      * - algo=prim     -> usa PrimService (array-based)
      * - algo=kruskal  -> usa GraphService.mst("kruskal")
+     * - startNode     -> nodo inicial para Prim (opcional)
      */
     @GetMapping("/mst")
-    public Mono<List<MstEdgeDTO>> mst(@RequestParam(defaultValue = "prim") String algo) {
+    public Mono<List<MstEdgeDTO>> mst(
+            @RequestParam(defaultValue = "prim") String algo,
+            @RequestParam(required = false) String startNode) {
         if ("kruskal".equalsIgnoreCase(algo)) {
             return svc.mst("kruskal").map(list ->
                     list.stream()
@@ -75,12 +78,29 @@ public class GraphController {
                             .toList()
             );
         }
-        // default: prim
-        return prim.primMST().map(list ->
+        // default: prim (con nodo inicial opcional)
+        return prim.primMST(startNode).map(list ->
                 list.stream()
                         .map(e -> new MstEdgeDTO(e.from(), e.to(), (double) e.weight()))
                         .toList()
         );
+    }
+    
+    /**
+     * MST Forest: Encuentra MST para cada componente conexa
+     * Retorna múltiples árboles (uno por área temática)
+     */
+    @GetMapping("/mst-forest")
+    public Mono<List<PrimService.ComponentMST>> mstForest() {
+        return prim.primForest();
+    }
+    
+    /**
+     * Estadísticas de conectividad del grafo RELATED
+     */
+    @GetMapping("/connectivity-stats")
+    public Mono<PrimService.ConnectivityStats> connectivityStats() {
+        return prim.getConnectivityStats();
     }
 
     /** DTO unificado para exponer aristas del MST */

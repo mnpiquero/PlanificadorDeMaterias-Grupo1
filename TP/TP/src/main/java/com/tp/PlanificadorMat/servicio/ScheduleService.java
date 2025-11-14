@@ -81,25 +81,68 @@ public class ScheduleService {
 
     // --- Backtracking: rutas desde 'from' a 'to' respetando prereqs (sobre REQUIRES) ---
     public Mono<List<List<String>>> backtrackingPaths(String from, String to, int maxDepth) {
-        return repo.allCourses().collectList().map(all -> {
-            Map<String, Set<String>> adj = new HashMap<>();
-            for (Course c : all) {
-                adj.putIfAbsent(c.getCode(), new HashSet<>());
-                if (c.getPrereqs()!=null) for (Course p : c.getPrereqs()) adj.get(c.getCode()).add(p.getCode());
-            }
-            List<List<String>> res = new ArrayList<>();
-            backtrack(from, to, maxDepth, new ArrayList<>(), new HashSet<>(), adj, res);
-            return res;
-        });
+        // Caso especial: si from == to, devolver ruta trivial
+        if (from != null && from.equals(to)) {
+            return Mono.just(List.of(List.of(from)));
+        }
+        
+        // Cargar todos los cursos y luego sus prereqs (más confiable que allCoursesWithPrereqs)
+        return repo.allCourses()
+                .collectMap(Course::getCode, c -> c)
+                .flatMap(byCode -> {
+                    if (byCode.isEmpty() || !byCode.containsKey(from) || !byCode.containsKey(to)) {
+                        return Mono.just(List.<List<String>>of());
+                    }
+                    // Cargar prereqs para cada curso
+                    return Flux.fromIterable(byCode.keySet())
+                            .flatMap(code -> repo.prereqsOf(code)
+                                    .map(Course::getCode)
+                                    .collectList()
+                                    .map(prereqCodes -> new AbstractMap.SimpleEntry<>(code, prereqCodes))
+                            )
+                            .collectMap(
+                                    AbstractMap.SimpleEntry::getKey,
+                                    AbstractMap.SimpleEntry::getValue
+                            )
+                            .map(prereqsMap -> {
+                                // Construir grafo: si A requiere B, entonces B -> A (desde B puedes ir a A)
+                                Map<String, Set<String>> adj = new HashMap<>();
+                                // Asegurar que todos los cursos estén en el grafo
+                                for (String code : byCode.keySet()) {
+                                    adj.putIfAbsent(code, new HashSet<>());
+                                }
+                                // Si c tiene prerequisitos p, entonces desde p puedes ir a c
+                                for (var entry : prereqsMap.entrySet()) {
+                                    String courseCode = entry.getKey();
+                                    List<String> prereqCodes = entry.getValue();
+                                    for (String prereqCode : prereqCodes) {
+                                        if (byCode.containsKey(prereqCode)) {
+                                            adj.putIfAbsent(prereqCode, new HashSet<>());
+                                            adj.get(prereqCode).add(courseCode); // prereq -> course
+                                        }
+                                    }
+                                }
+                                List<List<String>> res = new ArrayList<>();
+                                backtrack(from, to, maxDepth, new ArrayList<>(), new HashSet<>(), adj, res);
+                                return res;
+                            });
+                });
     }
     private void backtrack(String u, String to, int md, List<String> path, Set<String> vis,
                            Map<String, Set<String>> adj, List<List<String>> out) {
-        if (md < 0 || u==null || !adj.containsKey(u)) return;
-        path.add(u); vis.add(u);
-        if (u.equals(to)) out.add(new ArrayList<>(path));
-        else for (String v : adj.getOrDefault(u, Set.of()))
-            if (!vis.contains(v)) backtrack(v, to, md-1, path, vis, adj, out);
-        path.remove(path.size()-1);
+        if (md < 0 || u == null || !adj.containsKey(u)) return;
+        path.add(u);
+        vis.add(u);
+        if (u.equals(to)) {
+            out.add(new ArrayList<>(path));
+        } else {
+            for (String v : adj.getOrDefault(u, Set.of())) {
+                if (!vis.contains(v)) {
+                    backtrack(v, to, md - 1, path, vis, adj, out);
+                }
+            }
+        }
+        path.remove(path.size() - 1);
         vis.remove(u);
     }
 

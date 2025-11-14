@@ -28,13 +28,15 @@ chmod +x init-data.sh
 
 **✨ Nuevo:** Los scripts ahora usan un enfoque de **dos fases** para evitar nodos con propiedades NULL.
 
-#### Windows (PowerShell)
+#### Paso 1: Cargar materias y prerequisitos
+
+##### Windows (PowerShell)
 
 ```powershell
 .\init-data-ingenieria.ps1
 ```
 
-#### Linux / Mac
+##### Linux / Mac
 
 ```bash
 chmod +x init-data-ingenieria.sh
@@ -44,6 +46,25 @@ chmod +x init-data-ingenieria.sh
 El script ejecuta:
 - **Fase 1**: Crea los 46 cursos con propiedades completas (sin relaciones)
 - **Fase 2**: Agrega las relaciones REQUIRES entre cursos
+
+#### Paso 2: Crear relaciones RELATED (necesario para MST)
+
+**⚠️ IMPORTANTE**: Los algoritmos MST (Prim y Kruskal) requieren relaciones RELATED. Ejecuta este script después del paso 1.
+
+##### Windows (PowerShell)
+
+```powershell
+.\create-related-ingenieria.ps1
+```
+
+##### Linux / Mac
+
+```bash
+chmod +x create-related-ingenieria.sh
+./create-related-ingenieria.sh
+```
+
+Este script crea automáticamente **~57 relaciones RELATED** entre materias relacionadas temáticamente usando el endpoint `/relationships/auto` que calcula la similaridad basándose en créditos, horas y dificultad.
 
 ## 📊 Datos que Carga
 
@@ -101,17 +122,23 @@ El script de Ingeniería en Informática carga el Plan 1621 (Año 2021) con:
 
 ## ✅ Verificación
 
-Después de ejecutar el script, puedes verificar:
+Después de ejecutar los scripts, puedes verificar:
 
 ```bash
 # Ver materias
 curl http://localhost:8080/courses
 
-# Ver relaciones
+# Ver relaciones RELATED
 curl http://localhost:8080/relationships
 
 # Ver orden topológico
 curl "http://localhost:8080/graph/toposort"
+
+# Probar MST con Prim
+curl "http://localhost:8080/graph/mst?algo=prim" | jq
+
+# Probar MST con Kruskal
+curl "http://localhost:8080/graph/mst?algo=kruskal" | jq
 
 # Planificación greedy
 curl "http://localhost:8080/schedule/greedy?maxHours=20"
